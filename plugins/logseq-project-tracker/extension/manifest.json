@@ -1,0 +1,18 @@
+{
+  "manifest_version": 3,
+  "name": "Logseq Project Tracker",
+  "version": "1.0.0",
+  "description": "Track all your Logseq projects, AI threads, news, events, and requests from the browser",
+  "permissions": ["storage", "alarms", "activeTab"],
+  "host_permissions": [
+    "http://localhost/*"
+  ],
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "Logseq Project Tracker"
+  },
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  }
+}

@@ -12,6 +12,7 @@ The repository also includes working plugin examples under `plugins/`:
 - `plugins/logseq-quick-capture/plugin` - quick inbox capture for notes and TODOs
 - `plugins/logseq-master-tools/plugin` - master dashboard that lists tool workflows, routes a task to an existing tool by keywords, and drafts a new tool when no strong match exists
 - `plugins/logseq-ops-command-center/plugin` - command center for all requested marketplace, inventory, Norwegian, standards, and GitHub workflows with mock results
+- `plugins/logseq-rds-81346/plugin` - creates/opens the `RDS/81346 #Project` page with starter request/event/news blocks
 - `plugins/erpnext-marketplace-mcp/server` - mock MCP service exposing all requested tools through `/mcp/call`
 - `plugins/marketplace-phone-control/extension` - mock browser extension for FINN/Facebook phone-control flows
 

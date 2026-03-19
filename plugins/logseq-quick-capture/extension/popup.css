@@ -524,7 +524,24 @@ textarea:focus {
   padding: 8px 10px;
 }
 
-.ent-type-badge  { font-size: 18px; flex-shrink: 0; }
+.ent-poster {
+  width: 42px;
+  height: 62px;
+  object-fit: cover;
+  border-radius: 6px;
+  flex-shrink: 0;
+  background: #181825;
+}
+
+.ent-poster-fallback {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 20px;
+  color: #89b4fa;
+  border: 1px solid #45475a;
+}
+
 .ent-card-body   { flex: 1; min-width: 0; }
 
 .ent-card-title {
@@ -553,7 +570,7 @@ textarea:focus {
 }
 .ent-status-watching { background: #1e3a5f; color: #89b4fa; }
 .ent-status-plan     { background: #2d2a1e; color: #fab387; }
-.ent-status-done     { background: #1e3a2d; color: #a6e3a1; }
+.ent-status-watched  { background: #1e3a2d; color: #a6e3a1; }
 
 .ent-card-actions { display: flex; gap: 2px; flex-shrink: 0; }
 
@@ -567,6 +584,19 @@ textarea:focus {
   transition: background 0.15s;
 }
 .ent-action-btn:hover { background: #45475a; }
+
+.ent-suggest-title {
+  font-size: 11px;
+  color: #a6adc8;
+  margin: 0 0 6px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.ent-suggest-subtitle {
+  font-size: 11px;
+  color: #a6adc8;
+}
 
 .series-prompt {
   background: #181825;
@@ -599,6 +629,44 @@ textarea:focus {
   font-size: 11px;
   text-align: center;
 }
+
+/* ── Poster picker ──────────────────────────────────────────────────────────── */
+.ent-poster-picker {
+  margin-bottom: 10px;
+}
+
+.ent-poster-picker-hint {
+  font-size: 11px;
+  color: #a6adc8;
+  margin-bottom: 6px;
+}
+
+.ent-poster-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+
+.ent-poster-option {
+  width: 52px;
+  height: 78px;
+  border-radius: 4px;
+  overflow: hidden;
+  cursor: pointer;
+  border: 2px solid transparent;
+  flex-shrink: 0;
+  transition: border-color 0.15s;
+}
+
+.ent-poster-option img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.ent-poster-option:hover { border-color: #89b4fa; }
+.ent-poster-option.selected { border-color: #a6e3a1; }
 
 /* ── YouTube ────────────────────────────────────────────────────────────────── */
 .yt-results-header {

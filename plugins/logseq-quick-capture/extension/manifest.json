@@ -4,7 +4,11 @@
   "version": "1.0.0",
   "description": "Save notes and reminders to Logseq from any webpage",
   "permissions": ["storage", "alarms", "bookmarks", "activeTab", "contextMenus", "tabs"],
-  "host_permissions": ["http://localhost/*"],
+  "host_permissions": [
+    "http://localhost/*",
+    "https://api.themoviedb.org/*",
+    "https://image.tmdb.org/*"
+  ],
   "action": {
     "default_popup": "popup.html",
     "default_title": "Quick Capture to Logseq"

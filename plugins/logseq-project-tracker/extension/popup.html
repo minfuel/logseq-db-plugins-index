@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Logseq Project Tracker</title>
+  <link rel="stylesheet" href="popup.css" />
+</head>
+<body>
+  <div class="container">
+
+    <!-- ── Header ─────────────────────────────────────────────────────────── -->
+    <header>
+      <div class="logo">📋 Project Tracker</div>
+      <div class="header-actions">
+        <span id="lastRefreshTime" class="refresh-time"></span>
+        <button id="refreshBtn" class="icon-btn" title="Refresh">↺</button>
+        <button id="settingsToggle" class="icon-btn" title="Settings">⚙️</button>
+      </div>
+    </header>
+
+    <!-- ── Status bar ─────────────────────────────────────────────────────── -->
+    <div id="statusbar" class="statusbar hidden"></div>
+
+    <!-- ── Settings panel ────────────────────────────────────────────────── -->
+    <div id="settingsPanel" class="settings-panel hidden">
+      <div class="field">
+        <label for="apiPort">
+          Logseq HTTP Server Port
+          <span class="hint">Logseq → Settings → Advanced → HTTP Server</span>
+        </label>
+        <input type="number" id="apiPort" placeholder="12315" min="1" max="65535" />
+      </div>
+      <div class="field">
+        <label for="authToken">
+          Auth Token
+          <span class="hint">Leave blank if no token is set</span>
+        </label>
+        <input type="password" id="authToken" placeholder="Optional" autocomplete="off" />
+      </div>
+      <div class="field">
+        <label for="programProperty">
+          Program Property Name
+          <span class="hint">Page property used to group projects (e.g. "program")</span>
+        </label>
+        <input type="text" id="programProperty" placeholder="program" />
+      </div>
+      <button id="saveSettings" class="btn-primary">Save Settings</button>
+    </div>
+
+    <!-- ── Tab navigation ────────────────────────────────────────────────── -->
+    <nav class="tab-nav">
+      <button class="tab-btn active" data-tab="projects">🗂 Projects</button>
+      <button class="tab-btn" data-tab="feed">📡 Feed</button>
+    </nav>
+
+    <!-- ── Loading spinner ───────────────────────────────────────────────── -->
+    <div id="loadingSpinner" class="loading-spinner hidden">Loading from Logseq…</div>
+
+    <!-- ══════════════════════════════════════════════════════════════════════
+         Projects tab
+         ══════════════════════════════════════════════════════════════════ -->
+    <div id="tab-projects" class="tab-panel">
+      <div class="search-bar">
+        <input type="text" id="searchInput" placeholder="🔍 Search projects or programs…" autocomplete="off" />
+      </div>
+      <div class="project-create-row">
+        <button id="toggleCreatePanel" class="btn-secondary">＋ Add Program / Project</button>
+      </div>
+      <div class="project-create-row">
+        <button id="createRdsProjectBtn" class="btn-secondary btn-rds">⚡ Create/Open RDS 81346</button>
+      </div>
+      <div id="createPanel" class="settings-panel hidden">
+        <div class="project-create-tabs">
+          <button class="project-create-tab active" data-create-tab="program">Program</button>
+          <button class="project-create-tab" data-create-tab="project">Project</button>
+        </div>
+
+        <div id="create-program-panel" class="create-subpanel">
+          <div class="field">
+            <label for="newProgramName">Program Name</label>
+            <input type="text" id="newProgramName" placeholder="e.g. Payments" />
+          </div>
+          <button id="createProgramBtn" class="btn-primary">Create Program</button>
+        </div>
+
+        <div id="create-project-panel" class="create-subpanel hidden">
+          <div class="field">
+            <label for="projectProgramSelect">Program</label>
+            <select id="projectProgramSelect"></select>
+          </div>
+          <div class="field">
+            <label for="newProjectName">Project Name</label>
+            <input type="text" id="newProjectName" placeholder="e.g. Drivstoffapp" />
+          </div>
+          <button id="createProjectBtn" class="btn-primary">Create Project</button>
+        </div>
+
+        <div id="createStatus" class="status hidden"></div>
+      </div>
+      <div id="projectSummary" class="project-summary hidden"></div>
+      <div id="projectList" class="project-list"></div>
+    </div>
+
+    <!-- ══════════════════════════════════════════════════════════════════════
+         Feed tab  (news · events · requests across all projects)
+         ══════════════════════════════════════════════════════════════════ -->
+    <div id="tab-feed" class="tab-panel hidden">
+      <div class="feed-filters">
+        <button class="filter-btn active" data-filter="all">All</button>
+        <button class="filter-btn" data-filter="news">📰 News</button>
+        <button class="filter-btn" data-filter="event">📅 Events</button>
+        <button class="filter-btn" data-filter="request">🔔 Requests</button>
+      </div>
+      <div id="feedList" class="feed-list"></div>
+    </div>
+
+  </div>
+  <script src="popup.js"></script>
+</body>
+</html>

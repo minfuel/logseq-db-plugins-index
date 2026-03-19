@@ -1,0 +1,25 @@
+{
+  "name": "logseq-rds-81346",
+  "version": "0.1.0",
+  "description": "Bootstrap and manage the RDS 81346 project page in Logseq",
+  "main": "dist/index.js",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview"
+  },
+  "logseq": {
+    "id": "logseq-rds-81346",
+    "title": "RDS 81346",
+    "description": "Create or open the RDS 81346 project page with tracker-friendly tags"
+  },
+  "dependencies": {
+    "@logseq/libs": "^0.3.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "typescript": "^5.0.0",
+    "vite": "^5.0.0",
+    "vite-plugin-logseq": "^0.3.0"
+  }
+}

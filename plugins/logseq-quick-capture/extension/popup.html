@@ -57,6 +57,13 @@
         </label>
         <input type="password" id="openAiKey" placeholder="sk-…" />
       </div>
+      <div class="field">
+        <label for="tmdbApiKey">
+          TMDB API Key
+          <span class="hint">themoviedb.org → Settings → API</span>
+        </label>
+        <input type="password" id="tmdbApiKey" placeholder="TMDB v3 API key" />
+      </div>
       <button id="saveSettings" class="btn-primary">Save Settings</button>
       <div id="settingsStatus" class="status"></div>
     </div>
@@ -155,7 +162,7 @@
         <button class="ent-filter active" data-filter="all">All</button>
         <button class="ent-filter" data-filter="watching">Watching</button>
         <button class="ent-filter" data-filter="plan">Plan</button>
-        <button class="ent-filter" data-filter="done">Done</button>
+        <button class="ent-filter" data-filter="watched">Watched</button>
       </div>
 
       <div id="entAddForm" class="ent-form hidden">
@@ -163,6 +170,7 @@
           <label for="entTitle">Title</label>
           <input type="text" id="entTitle" placeholder="Movie or series name" />
         </div>
+        <div id="entPosterPicker" class="ent-poster-picker hidden"></div>
         <div class="options-row">
           <label class="checkbox-label">
             <input type="radio" name="entType" value="movie" checked />
@@ -187,13 +195,14 @@
         </div>
         <div class="field">
           <label for="entUrl">URL (optional)</label>
-          <input type="url" id="entUrl" placeholder="https://…" />
+          <input type="text" id="entUrl" placeholder="https://… (only the path after the domain is saved)" />
         </div>
         <div class="field">
           <label for="entStatus">Status</label>
           <select id="entStatus">
             <option value="watching">▶️ Watching</option>
             <option value="plan">📋 Plan to Watch</option>
+            <option value="watched">✅ Watched</option>
           </select>
         </div>
         <input type="hidden" id="entEditId" value="" />

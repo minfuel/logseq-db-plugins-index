@@ -38,6 +38,125 @@ async function getSettings() {
   }
 }
 
+async function callLogseqApi(method, args, apiPort, authToken) {
+  const headers = { 'Content-Type': 'application/json' }
+  if (authToken) headers['Authorization'] = `Bearer ${authToken}`
+
+  const response = await fetch(`http://localhost:${apiPort}/api`, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify({ method, args }),
+  })
+
+  if (!response.ok) {
+    const text = await response.text()
+    throw new Error(text || `HTTP ${response.status}`)
+  }
+
+  return response.json()
+}
+
+function extractBlockUuid(result) {
+  if (!result) return null
+  if (typeof result === 'string') return result
+  if (Array.isArray(result)) {
+    for (const entry of result) {
+      const nested = extractBlockUuid(entry)
+      if (nested) return nested
+    }
+    return null
+  }
+  if (typeof result === 'object') {
+    if (typeof result.uuid === 'string') return result.uuid
+    if (result.block) return extractBlockUuid(result.block)
+    if (result.data) return extractBlockUuid(result.data)
+  }
+  return null
+}
+
+function normalizeEntStatus(status) {
+  return status === 'done' ? 'watched' : (status || 'watching')
+}
+
+function formatEntRootContent(item) {
+  const posterCell = item.posterUrl
+    ? `![${item.title}](${item.posterUrl}){:height 121, :width 107}`
+    : `**${item.title}**`
+  const typeCell = item.type === 'series' ? 'series' : 'movie'
+  const yearCell = item.year || '----'
+  return `||||\n|${posterCell}|${typeCell}|${yearCell}|[[GreenLight]]|`
+}
+
+function formatEntLogContent(item, action) {
+  const titleStr = item.url ? `[${item.title}](${item.url})` : item.title
+  if (action === 'add') {
+    const normalized = normalizeEntStatus(item.status)
+    const verb = normalized === 'plan'
+      ? '📋 Plan to watch'
+      : normalized === 'watched'
+        ? '✅ Watched'
+        : '▶️ Started watching'
+    let content = `${verb}: **${titleStr}**`
+    if (item.type === 'series') content += ` — S${item.season}E${item.episode}`
+    return content
+  }
+  if (action === 'watched') {
+    return `✅ Watched (${new Date().toLocaleDateString()}): **${titleStr}**`
+  }
+  if (action === 'progress') {
+    return `📺 Progress: **${titleStr}** — S${item.season}E${item.episode}`
+  }
+  return null
+}
+
+async function persistEntRootBlockUuid(itemId, rootBlockUuid) {
+  const { qc_entertainment = [] } = await chrome.storage.local.get('qc_entertainment')
+  const idx = qc_entertainment.findIndex((entry) => entry.id === itemId)
+  if (idx === -1) return
+  qc_entertainment[idx] = {
+    ...qc_entertainment[idx],
+    rootBlockUuid,
+    updatedAt: new Date().toISOString(),
+  }
+  await chrome.storage.local.set({ qc_entertainment })
+}
+
+async function ensureEntRootBlock(item, apiPort, authToken) {
+  if (item.rootBlockUuid) return item.rootBlockUuid
+
+  const created = await callLogseqApi(
+    'logseq.Editor.appendBlockInPage',
+    ['Entertainment', formatEntRootContent(item)],
+    apiPort,
+    authToken
+  )
+  const rootBlockUuid = extractBlockUuid(created)
+  if (!rootBlockUuid) throw new Error('Could not create entertainment root block')
+
+  item.rootBlockUuid = rootBlockUuid
+  await persistEntRootBlockUuid(item.id, rootBlockUuid)
+  return rootBlockUuid
+}
+
+async function processEntSyncQueueItem(queueItem, apiPort, authToken) {
+  const item = { ...queueItem.entItem }
+  if (queueItem.action === 'add' || queueItem.action === 'root-update') {
+    const content = formatEntRootContent(item)
+    if (item.rootBlockUuid) {
+      await callLogseqApi('logseq.Editor.updateBlock', [item.rootBlockUuid, content], apiPort, authToken)
+    } else {
+      await ensureEntRootBlock(item, apiPort, authToken)
+    }
+  } else {
+    await ensureEntRootBlock(item, apiPort, authToken)
+  }
+
+  const logContent = formatEntLogContent(item, queueItem.action)
+  if (logContent) {
+    await callLogseqApi('logseq.Editor.appendBlock', [item.rootBlockUuid, logContent, false], apiPort, authToken)
+  }
+}
+
 async function tryFlushQueue() {
   const { qc_queue = [] } = await chrome.storage.local.get('qc_queue')
   if (qc_queue.length === 0) return
@@ -47,23 +166,12 @@ async function tryFlushQueue() {
 
   for (const item of qc_queue) {
     try {
-      const blocks = Array.isArray(item.blocks) && item.blocks.length ? item.blocks : [item.content]
-
-      for (const block of blocks) {
-        const headers = { 'Content-Type': 'application/json' }
-        if (authToken) headers['Authorization'] = `Bearer ${authToken}`
-
-        const response = await fetch(`http://localhost:${apiPort}/api`, {
-          method: 'POST',
-          headers,
-          body: JSON.stringify({
-            method: 'logseq.Editor.appendBlockInPage',
-            args: [item.targetPage, block],
-          }),
-        })
-
-        if (!response.ok) {
-          throw new Error(`HTTP ${response.status}`)
+      if (item.kind === 'ent-sync') {
+        await processEntSyncQueueItem(item, apiPort, authToken)
+      } else {
+        const blocks = Array.isArray(item.blocks) && item.blocks.length ? item.blocks : [item.content]
+        for (const block of blocks) {
+          await callLogseqApi('logseq.Editor.appendBlockInPage', [item.targetPage, block], apiPort, authToken)
         }
       }
     } catch {

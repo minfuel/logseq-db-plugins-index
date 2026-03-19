@@ -67,6 +67,7 @@ const DEFAULTS = {
   defaultTags: 'QuickCapture',
   ytApiKey: '',
   openAiKey: '',
+  tmdbApiKey: '',
 }
 
 let settings = { ...DEFAULTS }
@@ -155,20 +156,179 @@ function buildNoteBlocks(content, isTodo, rawTags, images) {
   return [mainBlock, ...imageBlocks, ...ytPreviewBlocks].filter(Boolean)
 }
 
-async function sendToLogseq(blockContent, targetPage, port, token) {
-  const resolvedPage =
-    targetPage.toLowerCase() === 'journal' ? getTodayJournalName() : targetPage
+function normalizeEntStatus(status) {
+  return status === 'done' ? 'watched' : (status || 'watching')
+}
 
+function getEntStatusLabel(status) {
+  const normalized = normalizeEntStatus(status)
+  return {
+    watching: '▶️ Watching',
+    plan: '📋 Plan',
+    watched: '✅ Watched',
+  }[normalized] || '▶️ Watching'
+}
+
+// ── URL path helper ───────────────────────────────────────────────────────────
+
+function extractUrlPath(rawUrl) {
+  if (!rawUrl) return ''
+  try {
+    const parsed = new URL(rawUrl.includes('://') ? rawUrl : `https://${rawUrl}`)
+    return parsed.pathname + parsed.search + parsed.hash
+  } catch {
+    return rawUrl.startsWith('/') ? rawUrl : rawUrl
+  }
+}
+
+function inferEntTypeFromCategory(category) {
+  const normalized = String(category || '').toLowerCase()
+  return new Set(['tv', 'tv_show', 'show', 'series']).has(normalized) ? 'series' : 'movie'
+}
+
+// ── Poster search (TMDB + NeoDB fallback) ─────────────────────────────────────
+
+async function fetchTmdbResults(title, type, apiKey) {
+  if (!apiKey || !title) return []
+  const endpoint = type === 'series' ? 'tv' : 'movie'
+  const params = new URLSearchParams({
+    api_key: apiKey,
+    query: title,
+    include_adult: 'false',
+    language: 'en-US',
+    page: '1',
+  })
+  const response = await fetch(`https://api.themoviedb.org/3/search/${endpoint}?${params}`)
+  if (!response.ok) return []
+  const data = await response.json()
+  return (data.results || [])
+    .filter(r => r.poster_path)
+    .slice(0, 8)
+    .map(r => {
+      const yearSource = type === 'series' ? r.first_air_date : r.release_date
+      return {
+        posterUrl: `https://image.tmdb.org/t/p/w185${r.poster_path}`,
+        title: r.title || r.name || title,
+        year: yearSource ? String(yearSource).slice(0, 4) : null,
+      }
+    })
+}
+
+async function fetchNeodbPosterOptions(title, type) {
+  const params = new URLSearchParams({ query: title, page: '1' })
+  const response = await fetch(`https://neodb.social/api/catalog/search?${params}`, {
+    headers: { Accept: 'application/json' },
+  })
+  if (!response.ok) return []
+  const data = await response.json()
+  const items = data.data || data.results || []
+  const typeCategories = type === 'series'
+    ? new Set(['tv', 'tv_show', 'show', 'series'])
+    : new Set(['movie', 'film'])
+  const withPoster = items.filter(r => r.cover_image_url)
+  const categoryMatched = withPoster.filter((r) => {
+    const category = String(r.category || '').toLowerCase()
+    return typeCategories.has(category)
+  })
+  const source = categoryMatched.length ? categoryMatched : withPoster
+  return source
+    .slice(0, 8)
+    .map(r => ({
+      posterUrl: r.cover_image_url,
+      title: r.display_title || r.title || title,
+      year: r.year
+        ? String(r.year)
+        : (r.release_date ? String(r.release_date).slice(0, 4) : null),
+    }))
+}
+
+async function fetchNeodbSuggestions(query) {
+  if (!query.trim()) return []
+  const params = new URLSearchParams({ query, page: '1' })
+  const response = await fetch(`https://neodb.social/api/catalog/search?${params}`, {
+    headers: { Accept: 'application/json' },
+  })
+  if (!response.ok) return []
+  const data = await response.json()
+  const items = data.data || data.results || []
+  return items
+    .slice(0, 8)
+    .map((r) => ({
+      title: r.display_title || r.title || query,
+      posterUrl: r.cover_image_url || null,
+      year: r.year
+        ? String(r.year)
+        : (r.release_date ? String(r.release_date).slice(0, 4) : null),
+      type: inferEntTypeFromCategory(r.category),
+    }))
+}
+
+// ── Poster picker state ───────────────────────────────────────────────────────
+
+let selectedPosterUrl = null
+let selectedYear = null
+let posterSearchTimer = null
+
+async function triggerPosterSearch(title, type) {
+  clearTimeout(posterSearchTimer)
+  if (!title.trim()) { renderPosterPicker([], false); return }
+  renderPosterPicker([], true)
+  posterSearchTimer = setTimeout(async () => {
+    let options = []
+    try {
+      if (settings.tmdbApiKey) {
+        options = await fetchTmdbResults(title, type, settings.tmdbApiKey)
+      } else {
+        options = await fetchNeodbPosterOptions(title, type)
+      }
+    } catch { /* poster search is optional */ }
+    renderPosterPicker(options, false)
+  }, 600)
+}
+
+function renderPosterPicker(options, loading) {
+  const picker = document.getElementById('entPosterPicker')
+  if (!picker) return
+  if (loading) {
+    picker.innerHTML = '<div class="ent-poster-picker-hint">Searching posters…</div>'
+    picker.classList.remove('hidden')
+    return
+  }
+  if (options.length === 0) {
+    picker.classList.add('hidden')
+    picker.innerHTML = ''
+    return
+  }
+  picker.classList.remove('hidden')
+  picker.innerHTML = `
+    <div class="ent-poster-picker-hint">Click a poster to select it</div>
+    <div class="ent-poster-grid">
+      ${options.map(opt => `
+        <div class="ent-poster-option${selectedPosterUrl === opt.posterUrl ? ' selected' : ''}"
+             data-poster="${opt.posterUrl}"
+             data-year="${opt.year || ''}"
+             title="${opt.title}${opt.year ? ' (' + opt.year + ')' : ''}">
+          <img src="${opt.posterUrl}" alt="${opt.title}" loading="lazy" />
+        </div>`).join('')}
+    </div>`
+  picker.querySelectorAll('.ent-poster-option').forEach(el => {
+    el.addEventListener('click', () => {
+      selectedPosterUrl = el.dataset.poster
+      selectedYear = el.dataset.year || null
+      picker.querySelectorAll('.ent-poster-option').forEach(e => e.classList.remove('selected'))
+      el.classList.add('selected')
+    })
+  })
+}
+
+async function callLogseqApi(method, args, port, token) {
   const headers = { 'Content-Type': 'application/json' }
   if (token) headers['Authorization'] = `Bearer ${token}`
 
   const response = await fetch(`http://localhost:${port}/api`, {
     method: 'POST',
     headers,
-    body: JSON.stringify({
-      method: 'logseq.Editor.appendBlockInPage',
-      args: [resolvedPage, blockContent],
-    }),
+    body: JSON.stringify({ method, args }),
   })
 
   if (!response.ok) {
@@ -177,6 +337,103 @@ async function sendToLogseq(blockContent, targetPage, port, token) {
   }
 
   return response.json()
+}
+
+function extractBlockUuid(result) {
+  if (!result) return null
+  if (typeof result === 'string') return result
+  if (Array.isArray(result)) {
+    for (const entry of result) {
+      const nested = extractBlockUuid(entry)
+      if (nested) return nested
+    }
+    return null
+  }
+  if (typeof result === 'object') {
+    if (typeof result.uuid === 'string') return result.uuid
+    if (result.block) return extractBlockUuid(result.block)
+    if (result.data) return extractBlockUuid(result.data)
+  }
+  return null
+}
+
+function formatEntRootContent(item) {
+  const posterCell = item.posterUrl
+    ? `![${item.title}](${item.posterUrl}){:height 121, :width 107}`
+    : `**${item.title}**`
+  const typeCell = item.type === 'series' ? 'series' : 'movie'
+  const yearCell = item.year || '----'
+  const typeTags = item.type === 'series' ? '#entertainment #series' : '#entertainment #movies'
+  return `${typeTags}\n||||\n|${posterCell}|${typeCell}|${yearCell}|[[GreenLight]]|`
+}
+
+function formatEntLogContent(item, action) {
+  const titleStr = item.title
+  if (action === 'add') {
+    const normalized = normalizeEntStatus(item.status)
+    const verb = normalized === 'plan'
+      ? '📋 Plan to watch'
+      : normalized === 'watched'
+        ? '✅ Watched'
+        : '▶️ Started watching'
+    let content = `${verb}: **${titleStr}**`
+    if (item.type === 'series') content += ` — S${item.season}E${item.episode}`
+    return content
+  }
+  if (action === 'watched') {
+    return `✅ Watched (${new Date().toLocaleDateString()}): **${titleStr}**`
+  }
+  if (action === 'progress') {
+    return `📺 Progress: **${titleStr}** — S${item.season}E${item.episode}`
+  }
+  return null
+}
+
+async function persistEntRootBlockUuid(itemId, rootBlockUuid) {
+  const items = await getEntItems()
+  const idx = items.findIndex((entry) => entry.id === itemId)
+  if (idx === -1) return
+  items[idx] = { ...items[idx], rootBlockUuid, updatedAt: new Date().toISOString() }
+  await saveEntItems(items)
+}
+
+async function ensureEntRootBlock(item) {
+  if (item.rootBlockUuid) return item.rootBlockUuid
+
+  const created = await callLogseqApi(
+    'logseq.Editor.appendBlockInPage',
+    ['Entertainment', formatEntRootContent(item)],
+    settings.apiPort,
+    settings.authToken
+  )
+
+  const rootBlockUuid = extractBlockUuid(created)
+  if (!rootBlockUuid) throw new Error('Could not create entertainment root block')
+
+  item.rootBlockUuid = rootBlockUuid
+  await persistEntRootBlockUuid(item.id, rootBlockUuid)
+  return rootBlockUuid
+}
+
+async function upsertEntRootBlock(item) {
+  const content = formatEntRootContent(item)
+  if (item.rootBlockUuid) {
+    await callLogseqApi(
+      'logseq.Editor.updateBlock',
+      [item.rootBlockUuid, content],
+      settings.apiPort,
+      settings.authToken
+    )
+    return item.rootBlockUuid
+  }
+
+  return ensureEntRootBlock(item)
+}
+
+async function sendToLogseq(blockContent, targetPage, port, token) {
+  const resolvedPage =
+    targetPage.toLowerCase() === 'journal' ? getTodayJournalName() : targetPage
+  return callLogseqApi('logseq.Editor.appendBlockInPage', [resolvedPage, blockContent], port, token)
 }
 
 function showStatus(el, message, type) {
@@ -313,6 +570,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   document.getElementById('noteTags').value  = settings.defaultTags
   document.getElementById('ytApiKey').value  = settings.ytApiKey  || ''
   document.getElementById('openAiKey').value = settings.openAiKey || ''
+  document.getElementById('tmdbApiKey').value = settings.tmdbApiKey || ''
 
   const noteContent  = document.getElementById('noteContent')
   const isTodo       = document.getElementById('isTodo')
@@ -377,6 +635,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       defaultTags: document.getElementById('defaultTags').value.trim(),
       ytApiKey:  document.getElementById('ytApiKey').value.trim(),
       openAiKey: document.getElementById('openAiKey').value.trim(),
+      tmdbApiKey: document.getElementById('tmdbApiKey').value.trim(),
     }
     await saveSettings(newSettings)
     showStatus(settingsStatus, '✓ Settings saved', 'success')
@@ -559,32 +818,32 @@ async function deleteEntItem(id) {
 }
 
 async function syncEntToLogseq(item, action) {
-  const titleStr = item.url ? `[${item.title}](${item.url})` : item.title
-  const typeTag  = item.type === 'series' ? '#series' : '#movie'
-  let block
-  if (action === 'add') {
-    const verb = item.status === 'plan' ? '📋 Plan to watch' : '▶️ Now watching'
-    block = `${verb}: **${titleStr}** #entertainment ${typeTag}`
-    if (item.type === 'series') block += ` — S${item.season}E${item.episode}`
-  } else if (action === 'done') {
-    block = `✅ Finished (${new Date().toLocaleDateString()}): **${titleStr}** #entertainment ${typeTag}`
-  } else if (action === 'progress') {
-    block = `📺 **${titleStr}** — S${item.season}E${item.episode} #entertainment ${typeTag}`
-  }
-  if (!block) return
+  const logContent = formatEntLogContent(item, action)
   try {
-    await sendToLogseq(block, 'Entertainment', settings.apiPort, settings.authToken)
+    const rootBlockUuid = await upsertEntRootBlock(item)
+    if (logContent) {
+      await callLogseqApi(
+        'logseq.Editor.appendBlock',
+        [rootBlockUuid, logContent, false],
+        settings.apiPort,
+        settings.authToken
+      )
+    }
   } catch {
-    await pushToQueue({ content: block, targetPage: 'Entertainment', timestamp: new Date().toISOString() })
+    await pushToQueue({
+      kind: 'ent-sync',
+      entItem: item,
+      action,
+      timestamp: new Date().toISOString(),
+    })
   }
 }
 
-const ENT_STATUS_LABELS = { watching: '▶️ Watching', plan: '📋 Plan', done: '✅ Done' }
 const ENT_TYPE_ICONS    = { movie: '🎬', series: '📺' }
 
 function renderEntList(items, filter, searchQuery) {
   const list = document.getElementById('entList')
-  let filtered = items
+  let filtered = items.map((item) => ({ ...item, status: normalizeEntStatus(item.status) }))
   if (filter && filter !== 'all') filtered = filtered.filter(i => i.status === filter)
   if (searchQuery) {
     const q = searchQuery.toLowerCase()
@@ -592,21 +851,24 @@ function renderEntList(items, filter, searchQuery) {
   }
   if (filtered.length === 0) {
     list.innerHTML = '<div class="empty-hint" style="margin:16px 0">Nothing here yet. Add something to watch!</div>'
-    return
+    return 0
   }
   list.innerHTML = filtered.map(item => {
+    const poster = item.posterUrl
+      ? `<img src="${item.posterUrl}" alt="${item.title} poster" class="ent-poster" />`
+      : `<div class="ent-poster ent-poster-fallback">${ENT_TYPE_ICONS[item.type]}</div>`
     const titleDisplay = item.url
-      ? `<a href="${item.url}" target="_blank" class="ent-title-link">${item.title}</a>`
+      ? `<a class="ent-title-link" data-path="${item.url}" href="#" title="Open on current site">${item.title}</a>`
       : `<span class="ent-title-link">${item.title}</span>`
-    const progress = (item.type === 'series' && item.status !== 'done')
+    const progress = (item.type === 'series' && item.status !== 'watched')
       ? `<span class="ent-progress">S${item.season}·E${item.episode}</span>` : ''
-    const doneBtn = item.status !== 'done'
-      ? `<button class="ent-action-btn" data-action="done" data-id="${item.id}" data-type="${item.type}" title="${item.type === 'series' ? 'Next / Done' : 'Mark done'}">${item.type === 'series' ? '⏭️' : '✅'}</button>` : ''
+    const doneBtn = item.status !== 'watched'
+      ? `<button class="ent-action-btn" data-action="watched" data-id="${item.id}" data-type="${item.type}" title="${item.type === 'series' ? 'Next / Watched' : 'Mark watched'}">${item.type === 'series' ? '⏭️' : '✅'}</button>` : ''
     return `<div class="ent-card">
-      <span class="ent-type-badge">${ENT_TYPE_ICONS[item.type]}</span>
+      ${poster}
       <div class="ent-card-body">
         <div class="ent-card-title">${titleDisplay}${progress}</div>
-        <span class="ent-status-badge ent-status-${item.status}">${ENT_STATUS_LABELS[item.status]}</span>
+        <span class="ent-status-badge ent-status-${item.status}">${getEntStatusLabel(item.status)}</span>
       </div>
       <div class="ent-card-actions">
         ${doneBtn}
@@ -618,15 +880,39 @@ function renderEntList(items, filter, searchQuery) {
   list.querySelectorAll('.ent-action-btn').forEach(btn => {
     btn.addEventListener('click', () => entCardAction(btn.dataset.action, btn.dataset.id, btn.dataset.type))
   })
+  list.querySelectorAll('.ent-title-link[data-path]').forEach(link => {
+    link.addEventListener('click', async (e) => {
+      e.preventDefault()
+      const path = link.dataset.path
+      try {
+        const [tab] = await chrome.tabs.query({ active: true, currentWindow: true })
+        const origin = tab?.url ? new URL(tab.url).origin : null
+        chrome.tabs.create({ url: origin ? origin + path : path })
+      } catch {
+        chrome.tabs.create({ url: path })
+      }
+    })
+  })
+  return filtered.length
 }
 
 function showEntForm(prefill = {}) {
   document.getElementById('entAddForm').classList.remove('hidden')
-  if (prefill.title) document.getElementById('entTitle').value = prefill.title
-  if (prefill.url)   document.getElementById('entUrl').value   = prefill.url
+  if (prefill.title) {
+    document.getElementById('entTitle').value = prefill.title
+    const type = document.querySelector('[name="entType"]:checked')?.value || 'movie'
+    triggerPosterSearch(prefill.title, type)
+  }
+  if (prefill.url) document.getElementById('entUrl').value = extractUrlPath(prefill.url)
+  document.getElementById('entStatus').value = normalizeEntStatus(prefill.status || 'watching')
 }
 
 function hideEntForm() {
+  selectedPosterUrl = null
+  selectedYear = null
+  clearTimeout(posterSearchTimer)
+  const picker = document.getElementById('entPosterPicker')
+  if (picker) { picker.classList.add('hidden'); picker.innerHTML = '' }
   document.getElementById('entAddForm').classList.add('hidden')
   ;['entTitle', 'entUrl', 'entEditId'].forEach(id => { document.getElementById(id).value = '' })
   document.getElementById('entStatus').value = 'watching'
@@ -646,7 +932,7 @@ function seriesPrompt(item) {
       <div class="series-prompt-desc">What happened?</div>
       <button data-c="episode">⏭️ Next Episode (S${item.season}E${item.episode + 1})</button>
       <button data-c="season">📂 Next Season (S${item.season + 1}E1)</button>
-      <button data-c="done">✅ Finished Series</button>
+      <button data-c="watched">✅ Finished Series</button>
       <button data-c="cancel" class="btn-link" style="margin-top:4px">Cancel</button>`
     document.getElementById('entList').prepend(el)
     el.querySelectorAll('button').forEach(b =>
@@ -662,7 +948,7 @@ async function entCardAction(action, id, type) {
   const activeFilter = document.querySelector('.ent-filter.active')?.dataset.filter || 'all'
   const search = document.getElementById('entSearch')?.value.trim() || ''
 
-  if (action === 'done') {
+  if (action === 'watched') {
     if (type === 'series') {
       const choice = await seriesPrompt(item)
       if (!choice || choice === 'cancel') return
@@ -674,18 +960,20 @@ async function entCardAction(action, id, type) {
         const upd = { season: item.season + 1, episode: 1 }
         await updateEntItem(id, upd)
         await syncEntToLogseq({ ...item, ...upd }, 'progress')
-      } else if (choice === 'done') {
-        await updateEntItem(id, { status: 'done', doneAt: new Date().toISOString() })
-        await syncEntToLogseq(item, 'done')
+      } else if (choice === 'watched') {
+        await updateEntItem(id, { status: 'watched', watchedAt: new Date().toISOString() })
+        await syncEntToLogseq({ ...item, status: 'watched' }, 'watched')
       }
     } else {
-      await updateEntItem(id, { status: 'done', doneAt: new Date().toISOString() })
-      await syncEntToLogseq(item, 'done')
+      await updateEntItem(id, { status: 'watched', watchedAt: new Date().toISOString() })
+      await syncEntToLogseq({ ...item, status: 'watched' }, 'watched')
     }
   } else if (action === 'edit') {
+    selectedPosterUrl = item.posterUrl || null
+    selectedYear = item.year || null
     document.getElementById('entTitle').value  = item.title
     document.getElementById('entUrl').value    = item.url || ''
-    document.getElementById('entStatus').value = item.status
+    document.getElementById('entStatus').value = normalizeEntStatus(item.status)
     document.getElementById('entEditId').value = item.id
     const radio = document.querySelector(`[name="entType"][value="${item.type}"]`)
     if (radio) { radio.checked = true; radio.dispatchEvent(new Event('change')) }
@@ -694,6 +982,7 @@ async function entCardAction(action, id, type) {
       document.getElementById('entEpisode').value = item.episode || 1
     }
     showEntForm()
+    triggerPosterSearch(item.title, item.type)
     return
   } else if (action === 'del') {
     const updated = await deleteEntItem(id)
@@ -710,9 +999,71 @@ async function checkPendingEntCapture() {
 
 function initEntertainmentTab() {
   let currentFilter = 'all'
+  let suggestTimer = null
+
+  async function renderNeodbSuggestions(searchQuery) {
+    const list = document.getElementById('entList')
+    list.innerHTML = '<div class="empty-hint" style="margin:16px 0">Nothing here yet. Add something to watch!</div><div class="empty-hint" style="margin-bottom:8px">Searching NeoDB suggestions…</div>'
+
+    let suggestions = []
+    try {
+      suggestions = await fetchNeodbSuggestions(searchQuery)
+    } catch {
+      suggestions = []
+    }
+
+    if (document.getElementById('entSearch').value.trim() !== searchQuery) return
+    if (suggestions.length === 0) return
+
+    list.innerHTML = `
+      <div class="empty-hint" style="margin:12px 0 8px">Nothing here yet. Add something to watch!</div>
+      <div class="ent-suggest-title">NeoDB suggestions</div>
+      ${suggestions.map((item, idx) => {
+        const poster = item.posterUrl
+          ? `<img src="${item.posterUrl}" alt="${item.title} poster" class="ent-poster" />`
+          : `<div class="ent-poster ent-poster-fallback">${ENT_TYPE_ICONS[item.type]}</div>`
+        const subtitle = `${item.type === 'series' ? 'series' : 'movie'}${item.year ? ' • ' + item.year : ''}`
+        return `<div class="ent-card ent-suggest-card">
+          ${poster}
+          <div class="ent-card-body">
+            <div class="ent-card-title">${item.title}</div>
+            <span class="ent-suggest-subtitle">${subtitle}</span>
+          </div>
+          <div class="ent-card-actions">
+            <button class="ent-action-btn ent-suggest-add" data-idx="${idx}" title="Add">➕</button>
+          </div>
+        </div>`
+      }).join('')}
+    `
+
+    list.querySelectorAll('.ent-suggest-add').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const suggestion = suggestions[parseInt(btn.dataset.idx, 10)]
+        if (!suggestion) return
+        const added = await addEntItem({
+          title: suggestion.title,
+          type: suggestion.type,
+          status: 'watching',
+          season: 1,
+          episode: 1,
+          ...(suggestion.posterUrl ? { posterUrl: suggestion.posterUrl } : {}),
+          ...(suggestion.year ? { year: suggestion.year } : {}),
+        })
+        await syncEntToLogseq(added[0], 'add')
+        await refreshList()
+      })
+    })
+  }
 
   async function refreshList() {
-    renderEntList(await getEntItems(), currentFilter, document.getElementById('entSearch').value.trim())
+    const searchQuery = document.getElementById('entSearch').value.trim()
+    const count = renderEntList(await getEntItems(), currentFilter, searchQuery)
+    clearTimeout(suggestTimer)
+    if (count === 0 && searchQuery) {
+      suggestTimer = setTimeout(() => {
+        renderNeodbSuggestions(searchQuery)
+      }, 350)
+    }
   }
 
   document.getElementById('entSearch').addEventListener('input', refreshList)
@@ -732,7 +1083,20 @@ function initEntertainmentTab() {
     radio.addEventListener('change', () => {
       const isSeries = document.querySelector('[name="entType"]:checked')?.value === 'series'
       document.getElementById('entSeriesFields').classList.toggle('hidden', !isSeries)
+      const title = document.getElementById('entTitle').value.trim()
+      if (title) triggerPosterSearch(title, isSeries ? 'series' : 'movie')
     })
+  })
+
+  document.getElementById('entTitle').addEventListener('input', () => {
+    const title = document.getElementById('entTitle').value.trim()
+    const type = document.querySelector('[name="entType"]:checked')?.value || 'movie'
+    triggerPosterSearch(title, type)
+  })
+
+  document.getElementById('entUrl').addEventListener('blur', () => {
+    const raw = document.getElementById('entUrl').value.trim()
+    if (raw) document.getElementById('entUrl').value = extractUrlPath(raw)
   })
 
   document.getElementById('entSaveBtn').addEventListener('click', async () => {
@@ -741,17 +1105,33 @@ function initEntertainmentTab() {
     if (!title) { showStatus(formStatus, 'Title is required', 'error'); return }
     const type   = document.querySelector('[name="entType"]:checked').value
     const editId = document.getElementById('entEditId').value
+
+    let posterUrl = selectedPosterUrl
+    let year = selectedYear
+    if (!posterUrl) {
+      try {
+        const results = settings.tmdbApiKey
+          ? await fetchTmdbResults(title, type, settings.tmdbApiKey)
+          : await fetchNeodbPosterOptions(title, type)
+        if (results[0]) { posterUrl = results[0].posterUrl; year = results[0].year }
+      } catch { /* poster is optional */ }
+    }
+
     const itemData = {
       title,
       type,
-      url:     document.getElementById('entUrl').value.trim(),
-      status:  document.getElementById('entStatus').value,
+      url:     extractUrlPath(document.getElementById('entUrl').value.trim()),
+      status:  normalizeEntStatus(document.getElementById('entStatus').value),
       season:  parseInt(document.getElementById('entSeason').value,  10) || 1,
       episode: parseInt(document.getElementById('entEpisode').value, 10) || 1,
+      ...(posterUrl ? { posterUrl } : {}),
+      ...(year ? { year } : {}),
     }
     let updatedItems
     if (editId) {
       updatedItems = await updateEntItem(editId, itemData)
+      const updatedItem = updatedItems.find((entry) => entry.id === editId)
+      if (updatedItem) await syncEntToLogseq(updatedItem, 'root-update')
     } else {
       updatedItems = await addEntItem(itemData)
       await syncEntToLogseq(updatedItems[0], 'add')
