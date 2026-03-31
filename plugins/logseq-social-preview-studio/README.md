@@ -58,3 +58,7 @@ plugins/logseq-social-preview-studio/plugin
 3. Enter your campaign brief
 4. Review generated post draft and checklist
 5. Duplicate and tweak for each platform
+
+
+
+https://github.com/0x7b1/logseq-plugin-automatic-url-title

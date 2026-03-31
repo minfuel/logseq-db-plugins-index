@@ -23,3 +23,6 @@ Local Logseq plugin that removes image backgrounds for all images found in selec
 - Processing is local in the plugin runtime.
 - First run may be slower because the segmentation model assets are initialized.
 - Some remote URLs can fail if the host blocks fetching from desktop app contexts.
+
+https://github.com/b-yp/logseq-image-editor
+https://github.com/yutaodou/logseq-image-auto-resizer

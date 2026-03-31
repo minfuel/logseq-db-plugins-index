@@ -1,5 +1,6 @@
 each plugin must have 
 - readme explaining the plugin before we make it, to guide the agent making it
+    - inspirations plugins
 - naming convention soo all our custom plugins will be grouped together, soo one common short prefix
 - icons that are svg which just use an emojis, but not directly an emoji. must be .svg format
 - usage readme at the plugin src folder
