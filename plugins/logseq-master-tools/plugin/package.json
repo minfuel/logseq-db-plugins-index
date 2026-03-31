@@ -15,12 +15,12 @@
     "description": "Browse tool workflows, route tasks, and draft new tools from one place"
   },
   "dependencies": {
-    "@logseq/libs": "^0.3.0"
+    "@logseq/libs": "^0.2.12"
   },
   "devDependencies": {
     "@types/node": "^20.0.0",
     "typescript": "^5.0.0",
     "vite": "^5.0.0",
-    "vite-plugin-logseq": "^0.3.0"
+    "vite-plugin-logseq": "^1.1.2"
   }
 }

@@ -4,3 +4,4 @@ each plugin must have
 - naming convention soo all our custom plugins will be grouped together, soo one common short prefix
 - icons that are svg which just use an emojis, but not directly an emoji. must be .svg format
 - usage readme at the plugin src folder
+- enhancements file
